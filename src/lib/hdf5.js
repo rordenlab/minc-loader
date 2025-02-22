@@ -49,24 +49,6 @@ var type_enum = {
   STR: 9
 }
 
-async function decompress(data) {
-  const format =
-    data[0] === 31 && data[1] === 139 && data[2] === 8
-      ? 'gzip'
-      : data[0] === 120 && (data[1] === 1 || data[1] === 94 || data[1] === 156 || data[1] === 218)
-        ? 'deflate'
-        : 'deflate-raw'
-  const stream = new DecompressionStream(format)
-  const writer = stream.writable.getWriter()
-  writer.write(data).catch(console.error) // Do not await this
-  // Close without awaiting directly, preventing the hang issue
-  const closePromise = writer.close().catch(console.error)
-  const response = new Response(stream.readable)
-  const result = new Uint8Array(await response.arrayBuffer())
-  await closePromise // Ensure close happens eventually
-  return result
-}
-
 function join(array, string) {
   var result = ''
   if (array && array.length) {
@@ -205,7 +187,6 @@ export function scaleVoxels(image, image_min, image_max, valid_range, debug) {
   var j
   var v
   var is_float = typeIsFloat(image.type)
-  console.log(image_min.array.length)
   for (i = 0; i < image_min.array.length; i += 1) {
     if (debug) {
       console.log(i + ' ' + im_min[i] + ' ' + im_max[i] + ' ' + im[i * n_slice_elements])
@@ -288,19 +269,44 @@ if (!Array.prototype.find) {
   }
 }
 
-function defined(x) {
-  return typeof x !== 'undefined'
-}
-
-var type_sizes = [0, 1, 1, 2, 2, 4, 4, 4, 8, 0]
-
 function typeSize(typ) {
+  var type_sizes = [0, 1, 1, 2, 2, 4, 4, 4, 8, 0]
   if (typ >= type_enum.INT8 && typ < type_sizes.length) {
     return type_sizes[typ]
   }
   throw new Error('Unknown type ' + typ)
 }
 
+/**
+ * @doc function
+ * @name hdf5Reader.createLink
+ * @returns {object} One of our internal 'link' objects.
+ * @description
+ * Function to create and initialize one of our internal
+ * 'link' objects,  which represent either an HDF5 group
+ * or dataset here.
+ */
+function createLink() {
+  var r = {}
+  // internal/private
+  r.hdr_offset = 0 // offset to object header.
+  r.data_offset = 0 // offset to actual data.
+  r.data_length = 0 // length of data.
+  r.n_filled = 0 // counts elements written to array
+  r.chunk_size = 0 // number of bytes per chunk.
+  r.chunk_dims = [] // dimensions of chunks.
+  r.sym_btree = 0 // offset of symbol table btree
+  r.sym_lheap = 0 // offset of symbol table local heap
+  // permanent/global
+  r.name = '' // name of this group or dataset.
+  r.attributes = {} // indexed by attribute name.
+  r.children = [] // not associative for now.
+  r.array = undefined // actual data, if dataset.
+  r.type = -1 // type of data.
+  r.inflate = false // true if need to inflate (gzip).
+  r.dims = [] // dimension sizes.
+  return r
+}
 /**
  * @doc function
  * @name hdf5Reader
@@ -340,36 +346,6 @@ export function hdf5Reader(abuf, debug) {
    * @description This object is used to represent HDF5 objects such as
    * groups and datasets, or NetCDF variables.
    */
-  /**
-   * @doc function
-   * @name hdf5Reader.createLink
-   * @returns {object} One of our internal 'link' objects.
-   * @description
-   * Function to create and initialize one of our internal
-   * 'link' objects,  which represent either an HDF5 group
-   * or dataset here.
-   */
-  function createLink() {
-    var r = {}
-    // internal/private
-    r.hdr_offset = 0 // offset to object header.
-    r.data_offset = 0 // offset to actual data.
-    r.data_length = 0 // length of data.
-    r.n_filled = 0 // counts elements written to array
-    r.chunk_size = 0 // number of bytes per chunk.
-    r.chunk_dims = [] // dimensions of chunks.
-    r.sym_btree = 0 // offset of symbol table btree
-    r.sym_lheap = 0 // offset of symbol table local heap
-    // permanent/global
-    r.name = '' // name of this group or dataset.
-    r.attributes = {} // indexed by attribute name.
-    r.children = [] // not associative for now.
-    r.array = undefined // actual data, if dataset.
-    r.type = -1 // type of data.
-    r.inflate = false // true if need to inflate (gzip).
-    r.dims = [] // dimension sizes.
-    return r
-  }
 
   /* Turns out that alignment of the messages in at least the
    * version 1 object header is actually relative to the start
@@ -1109,8 +1085,6 @@ export function hdf5Reader(abuf, debug) {
           if (link.inflate) {
             sp = new Uint8Array(abuf, offset, length)
             dp = pako.inflate(sp)
-            // TODO
-            // dp = await decompress(sp)
             switch (link.type) {
               case type_enum.INT8:
                 dp = new Int8Array(dp.buffer)

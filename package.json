@@ -22,7 +22,7 @@
   "license": "BSD-2-Clause",
   "description": "A MINC voxel image loader to be used with the NiiVue useLoader method",
   "scripts": {
-    "cli": "node ./src/minc2nii.js ./tests/testData/ax.mnc",
+    "cli": "node ./src/minc2nii.js ./tests/testData/ax2.mnc",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
