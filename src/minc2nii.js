@@ -21,16 +21,12 @@ const outputFile = inputFile.replace(/\.mnc$/, '.nii')
 
 // Read and parse the `.vox` file
 async function convertVoxToNifti() {
-  try {
-    const startTime = performance.now()
-    const buffer = await fs.readFile(inputFile)
-    let niftiData = await mnc2nii(buffer)
-    // Save the NIfTI file
-    await fs.writeFile(outputFile, Buffer.from(niftiData.buffer))
-    console.log(`Converted to ${outputFile} in ${Math.round(performance.now() - startTime)}ms`)
-  } catch (error) {
-    console.error('Error processing file:', error.message)
-  }
+  const startTime = performance.now()
+  const buffer = await fs.readFile(inputFile)
+  let niftiData = await mnc2nii(buffer)
+  // Save the NIfTI file
+  await fs.writeFile(outputFile, Buffer.from(niftiData.buffer))
+  console.log(`Converted to ${outputFile} in ${Math.round(performance.now() - startTime)}ms`)
 }
 
 convertVoxToNifti()

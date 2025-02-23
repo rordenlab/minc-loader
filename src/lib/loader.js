@@ -190,85 +190,83 @@ function getAffine(spaces) {
 }
 
 export async function mnc2nii(inBuffer, isVerbose = false) {
-  try {
-    let arrayBuff = extractArrayBuffer(inBuffer)
-    const dataView = new DataView(arrayBuff)
-    const signature = dataView.getUint32(0, false) // false for big-endian
-    let root = []
-    if (signature === 0x89484446) {
-      root = await hdf5.hdf5Reader(arrayBuff, isVerbose)
-    } else if (signature === 0x43444601) {
-      root = cdf.netcdfReader(arrayBuff, isVerbose)
-    } else {
-      throw new Error('Not a valid MINC format file (signature is not HDF or CDF).')
-    }
-    var image = hdf5.findDataset(root, 'image')
-    if (!image) {
-      throw new Error("Can't find image dataset.")
-    }
-    let [header_text, img] = img2nii(root, image)
-    // n.b. NIFTI dimension order: first dimensions change fastest on disk, MINC is reverse
-    let spaces = header_text.order
-      .slice()
-      .reverse()
-      .map((key) => ({ name: key, ...header_text[key] }))
-    const hdr = new nifti.NIFTI1()
-    hdr.affine = getAffine(spaces)
-    hdr.littleEndian = true
-    hdr.dims = [0, 0, 0, 0, 0, 0, 0, 0] // Default row/column/slice/volume dimensions
-    hdr.dims[0] = spaces.length
-    for (let i = 0; i < spaces.length; i++) {
-      hdr.dims[i + 1] = spaces[i].space_length
-    }
-    if (img instanceof Int8Array) {
-      hdr.datatypeCode = 256 // DT_INT8
-      hdr.numBitsPerVoxel = 8
-    } else if (img instanceof Uint8Array) {
-      hdr.datatypeCode = 2 // DT_UINT8
-      hdr.numBitsPerVoxel = 8
-    } else if (img instanceof Int16Array) {
-      hdr.datatypeCode = 4 // DT_INT16
-      hdr.numBitsPerVoxel = 16
-    } else if (img instanceof Uint16Array) {
-      hdr.datatypeCode = 512 // DT_UINT16
-      hdr.numBitsPerVoxel = 16
-    } else if (img instanceof Float32Array) {
-      hdr.datatypeCode = 16 // DT_FLOAT32
-      hdr.numBitsPerVoxel = 32
-    } else {
-      throw new Error('Unknown datatype: ' + img.constructor.name)
-    }
-    hdr.pixDims = [0, 1, 1, 1, 1, 0, 0, 0] // Default voxel size
-    for (let i = 0; i < spaces.length; i++) {
-      hdr.pixDims[i + 1] = Math.abs(spaces[i].step)
-    }
-    hdr.vox_offset = 352 // Standard offset
-    hdr.scl_slope = 1
-    hdr.scl_inter = 0
-    hdr.qform_code = 0
-    hdr.sform_code = 1 // NIFTI_XFORM_SCANNER_ANAT
-    hdr.littleEndian = true
-    hdr.magic = 'n+1'
-    //const nvol = Math.max(1, hdr.dims[4])
-    const bytesPerVoxel = Math.floor(hdr.numBitsPerVoxel / 8)
-    //const nbytes = hdr.dims[1] * hdr.dims[2] * hdr.dims[3] * .. * bytesPerVoxel
-    // Calculate the number of bytes based on all dimensions
-    const nbytes = hdr.dims.slice(1, hdr.dims[0] + 1).reduce((acc, dim) => acc * dim, bytesPerVoxel)
-    if (img.byteLength !== nbytes) {
-      let dimString = Array.from({ length: hdr.dims[0] }, (_, i) => hdr.dims[i + 1]).join('×')
-      throw new Error(
-        `Expected ${nbytes} bytes which is correct ${img.byteLength} bytes: ${dimString}:${bytesPerVoxel}`
-      )
-    }
-    const hdrBuffer = hdr.toArrayBuffer()
-    // Merge header and voxel data
-    const niftiData = new Uint8Array(hdrBuffer.byteLength + img.byteLength)
-    niftiData.set(new Uint8Array(hdrBuffer), 0)
-    niftiData.set(new Uint8Array(img.buffer, img.byteOffset, img.byteLength), hdrBuffer.byteLength)
-    return niftiData
-  } catch (error) {
-    console.error('Error reading MINC file:', error.message)
+  //try {
+  let arrayBuff = extractArrayBuffer(inBuffer)
+  const dataView = new DataView(arrayBuff)
+  const signature = dataView.getUint32(0, false) // false for big-endian
+  let root = []
+  if (signature === 0x89484446) {
+    root = await hdf5.hdf5Reader(arrayBuff, isVerbose)
+  } else if (signature === 0x43444601) {
+    root = cdf.netcdfReader(arrayBuff, isVerbose)
+  } else {
+    throw new Error('Not a valid MINC format file (signature is not HDF or CDF).')
   }
+  var image = hdf5.findDataset(root, 'image')
+  if (!image) {
+    throw new Error("Can't find image dataset.")
+  }
+  let [header_text, img] = img2nii(root, image)
+  // n.b. NIFTI dimension order: first dimensions change fastest on disk, MINC is reverse
+  let spaces = header_text.order
+    .slice()
+    .reverse()
+    .map((key) => ({ name: key, ...header_text[key] }))
+  const hdr = new nifti.NIFTI1()
+  hdr.affine = getAffine(spaces)
+  hdr.littleEndian = true
+  hdr.dims = [0, 0, 0, 0, 0, 0, 0, 0] // Default row/column/slice/volume dimensions
+  hdr.dims[0] = spaces.length
+  for (let i = 0; i < spaces.length; i++) {
+    hdr.dims[i + 1] = spaces[i].space_length
+  }
+  if (img instanceof Int8Array) {
+    hdr.datatypeCode = 256 // DT_INT8
+    hdr.numBitsPerVoxel = 8
+  } else if (img instanceof Uint8Array) {
+    hdr.datatypeCode = 2 // DT_UINT8
+    hdr.numBitsPerVoxel = 8
+  } else if (img instanceof Int16Array) {
+    hdr.datatypeCode = 4 // DT_INT16
+    hdr.numBitsPerVoxel = 16
+  } else if (img instanceof Uint16Array) {
+    hdr.datatypeCode = 512 // DT_UINT16
+    hdr.numBitsPerVoxel = 16
+  } else if (img instanceof Float32Array) {
+    hdr.datatypeCode = 16 // DT_FLOAT32
+    hdr.numBitsPerVoxel = 32
+  } else {
+    throw new Error('Unknown datatype: ' + img.constructor.name)
+  }
+  hdr.pixDims = [0, 1, 1, 1, 1, 0, 0, 0] // Default voxel size
+  for (let i = 0; i < spaces.length; i++) {
+    hdr.pixDims[i + 1] = Math.abs(spaces[i].step)
+  }
+  hdr.vox_offset = 352 // Standard offset
+  hdr.scl_slope = 1
+  hdr.scl_inter = 0
+  hdr.qform_code = 0
+  hdr.sform_code = 1 // NIFTI_XFORM_SCANNER_ANAT
+  hdr.littleEndian = true
+  hdr.magic = 'n+1'
+  //const nvol = Math.max(1, hdr.dims[4])
+  const bytesPerVoxel = Math.floor(hdr.numBitsPerVoxel / 8)
+  //const nbytes = hdr.dims[1] * hdr.dims[2] * hdr.dims[3] * .. * bytesPerVoxel
+  // Calculate the number of bytes based on all dimensions
+  const nbytes = hdr.dims.slice(1, hdr.dims[0] + 1).reduce((acc, dim) => acc * dim, bytesPerVoxel)
+  if (img.byteLength !== nbytes) {
+    let dimString = Array.from({ length: hdr.dims[0] }, (_, i) => hdr.dims[i + 1]).join('×')
+    throw new Error(`Expected ${nbytes} bytes which is correct ${img.byteLength} bytes: ${dimString}:${bytesPerVoxel}`)
+  }
+  const hdrBuffer = hdr.toArrayBuffer()
+  // Merge header and voxel data
+  const niftiData = new Uint8Array(hdrBuffer.byteLength + img.byteLength)
+  niftiData.set(new Uint8Array(hdrBuffer), 0)
+  niftiData.set(new Uint8Array(img.buffer, img.byteOffset, img.byteLength), hdrBuffer.byteLength)
+  return niftiData
+  /*} catch (error) {
+    console.error('Error reading MINC file:', error.message)
+  }*/
 }
 
 export function extractArrayBuffer(inBuffer) {

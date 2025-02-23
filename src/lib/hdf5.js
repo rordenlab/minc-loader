@@ -1,11 +1,11 @@
-import pako from 'pako'
 /*
  * BrainBrowser: Web-based Neurological Visualization Tools
  * (https://brainbrowser.cbrain.mcgill.ca)
- *fhdf5Loader
+ * hdf5Loader
  * Copyright (C) 2016
  * The Royal Institution for the Advancement of Learning
  * McGill University
+ * Extended to DecompressionStream API by Chris Rorden, 2025
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -28,13 +28,30 @@ import pako from 'pako'
  * is sufficient to parse most MINC 2.0 files, but may not handle HDF5
  * from other sources!!
  *
- * Relies on pako (https://github.com/nodeca/pako) to inflate
- * compressed data chunks.
+ * Relies on DecompressionStream API to inflate compressed data chunks.
  *
  * For details on the HDF5 format, see:
  * https://www.hdfgroup.org/HDF5/doc/H5.format.html
  */
 ;('use strict')
+
+async function decompress(data) {
+  const format =
+    data[0] === 31 && data[1] === 139 && data[2] === 8
+      ? 'gzip'
+      : data[0] === 120 && (data[1] === 1 || data[1] === 94 || data[1] === 156 || data[1] === 218)
+        ? 'deflate'
+        : 'deflate-raw'
+  const stream = new DecompressionStream(format)
+  const writer = stream.writable.getWriter()
+  writer.write(data).catch(console.error) // Do not await this
+  // Close without awaiting directly, preventing the hang issue
+  const closePromise = writer.close().catch(console.error)
+  const response = new Response(stream.readable)
+  const result = new Uint8Array(await response.arrayBuffer())
+  await closePromise // Ensure close happens eventually
+  return result
+}
 
 /* Internal type codes. These have nothing to do with HDF5. */
 var type_enum = {
@@ -318,7 +335,7 @@ function createLink() {
  * file structure.
  * @description Attempts to interpret an ArrayBuffer as an HDF5 file.
  */
-export function hdf5Reader(abuf, debug) {
+export async function hdf5Reader(abuf, debug) {
   /* 'global' variables. */
   var dv_offset = 0
   var align = 8
@@ -1080,57 +1097,15 @@ export function hdf5Reader(abuf, debug) {
         for (i = 0; i < bt.entries_used; i += 1) {
           length = chunks[i].chunk_size
           offset = bt.keys[i].child_address
-
           var dst_length = calcChunkSize(link.dims, link.chunk_dims, chunks[i].chunk_offsets)
-          if (link.inflate) {
-            sp = new Uint8Array(abuf, offset, length)
-            dp = pako.inflate(sp)
-            switch (link.type) {
-              case type_enum.INT8:
-                dp = new Int8Array(dp.buffer)
-                break
-              case type_enum.UINT8:
-                dp = new Uint8Array(dp.buffer)
-                break
-              case type_enum.INT16:
-                dp = new Int16Array(dp.buffer)
-                break
-              case type_enum.UINT16:
-                dp = new Uint16Array(dp.buffer)
-                break
-              case type_enum.INT32:
-                dp = new Int32Array(dp.buffer)
-                break
-              case type_enum.UINT32:
-                dp = new Uint32Array(dp.buffer)
-                break
-              case type_enum.FLT:
-                dp = new Float32Array(dp.buffer)
-                break
-              case type_enum.DBL:
-                dp = new Float64Array(dp.buffer)
-                break
-              default:
-                throw new Error('Unknown type code ' + link.type)
-            }
-            if (dst_length < dp.length) {
-              dp = dp.subarray(0, dst_length)
-            }
-            if (link.array.length - link.n_filled < dp.length) {
-              dp = dp.subarray(0, link.array.length - link.n_filled)
-              console.log('WARNING: Discarding excess data.')
-            }
-            link.array.set(dp, link.n_filled)
-            link.n_filled += dp.length
-            if (debug) {
-              console.log(link.name + ' ' + sp.length + ' ' + dp.length + ' ' + link.n_filled + '/' + link.array.length)
-            }
-          } else {
-            /* no need to inflate data. */
-            dp = getArray(link.type, length, offset)
-            link.array.set(dp, link.n_filled)
-            link.n_filled += dp.length
+          if (!Array.isArray(link.arrayOffset)) {
+            link.arrayOffset = []
+            link.arrayLength = []
+            link.arrayDstLength = []
           }
+          link.arrayOffset.push(offset)
+          link.arrayLength.push(length)
+          link.arrayDstLength.push(dst_length)
         }
       } else {
         for (i = 0; i < bt.entries_used; i += 1) {
@@ -1158,7 +1133,6 @@ export function hdf5Reader(abuf, debug) {
     var cache_type
     var child
     var spp
-
     for (i = 0; i < 2 * superblk.gln_k; i += 1) {
       link_name_offset = getOffset()
       ohdr_address = getOffset()
@@ -1631,9 +1605,6 @@ export function hdf5Reader(abuf, debug) {
         /* deflate */
         throw new Error('Unimplemented HDF5 filter ' + fiv)
       } else {
-        if (typeof pako !== 'object') {
-          throw new Error('Need pako to inflate data.')
-        }
         link.inflate = true
       }
       if (ver === 1 || fiv > 256) {
@@ -2346,6 +2317,72 @@ export function hdf5Reader(abuf, debug) {
     hdf5V2ObjectHeader(root)
   }
   loadData(root)
+  async function checkNode(link) {
+    // we use the async DecompressionStream API. TODO: defer and segment each volume as required
+    if (link.arrayOffset !== undefined && link.arrayLength !== undefined && link.arrayDstLength !== undefined) {
+      for (let i = 0; i < link.arrayOffset.length; i += 1) {
+        const offset = link.arrayOffset[i]
+        const length = link.arrayLength[i]
+        const dst_length = link.arrayDstLength[i]
+        if (link.inflate) {
+          const sp = new Uint8Array(abuf, offset, length)
+          //let dp = pako.inflate(sp)
+          let dp = await decompress(sp)
+          switch (link.type) {
+            case type_enum.INT8:
+              dp = new Int8Array(dp.buffer)
+              break
+            case type_enum.UINT8:
+              dp = new Uint8Array(dp.buffer)
+              break
+            case type_enum.INT16:
+              dp = new Int16Array(dp.buffer)
+              break
+            case type_enum.UINT16:
+              dp = new Uint16Array(dp.buffer)
+              break
+            case type_enum.INT32:
+              dp = new Int32Array(dp.buffer)
+              break
+            case type_enum.UINT32:
+              dp = new Uint32Array(dp.buffer)
+              break
+            case type_enum.FLT:
+              dp = new Float32Array(dp.buffer)
+              break
+            case type_enum.DBL:
+              dp = new Float64Array(dp.buffer)
+              break
+            default:
+              throw new Error('Unknown type code ' + link.type)
+          }
+          if (dst_length < dp.length) {
+            dp = dp.subarray(0, dst_length)
+          }
+          if (link.array.length - link.n_filled < dp.length) {
+            dp = dp.subarray(0, link.array.length - link.n_filled)
+            console.log('WARNING: Discarding excess data.')
+          }
+          link.array.set(dp, link.n_filled)
+          link.n_filled += dp.length
+          if (debug) {
+            console.log(link.name + ' ' + sp.length + ' ' + dp.length + ' ' + link.n_filled + '/' + link.array.length)
+          }
+        } else {
+          dp = getArray(link.type, length, offset)
+          link.array.set(dp, link.n_filled)
+          link.n_filled += dp.length
+        }
+      } //for each item in array
+    }
+    // Recursively check any children using a for...of loop to allow awaiting
+    if (link.children && Array.isArray(link.children)) {
+      for (const child of link.children) {
+        await checkNode(child)
+      }
+    }
+  }
+  await checkNode(root)
   return root
 } /* end of hdf5Reader() */
 

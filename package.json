@@ -30,8 +30,7 @@
     "pretty": "prettier --write \"**/*.js\""
   },
   "dependencies": {
-    "nifti-reader-js": "^0.7.1",
-    "pako": "^2.1.0"
+    "nifti-reader-js": "^0.7.1"
   },
   "devDependencies": {
     "@niivue/niivue": "^0.49.0",
