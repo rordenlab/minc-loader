@@ -4,7 +4,7 @@ The minc-loader is a NiiVue plugin that converts [MINC format](https://en.wikibo
 
 ## Local Development
 
-To illustrate this library, `vox2nii` is a node.js converter that can be run from the command line. The command `npm run test` runs some regression tests. The command `npm run cli` converts a MINC file to NIfTI from the command line. Finally, the command `node ./src/minc2nii.js /path/to/minc/minc.mnc` allows you to specify specific files to convert.
+To illustrate this library, `minc2nii.js` is a node.js converter that can be run from the command line. The command `npm run test` runs some regression tests. The command `npm run cli` converts a MINC file to NIfTI from the command line. Finally, the command `node ./src/minc2nii.js /path/to/minc/minc.mnc` allows you to specify specific files to convert.
 
 ```
 git clone git@github.com:rordenlab/minc-loader.git
@@ -25,10 +25,6 @@ cd minc-loader
 npm install
 npm run dev
 ```
-
-## Creating Sample Datasets
-
-You can convert NIfTI images with [nii2mnc](https://bic-mni.github.io/man-pages/man/nii2mnc.html), e.g. `nii2mnc ax_asc_35sl_6.nii ax.mnc`. This creates MINC files using HDF5 structure. To convert these files to NetCDF use [mincconvert](https://bic-mni.github.io/man-pages/man/mincconvert.html). The nice thing about converting known NIfTI files, is that you know the correct conversion to MINC. In particular, MINC files use different spatial transforms than NIfTI, so you may want to check how [mnc2nii](https://github.com/BIC-MNI/minc-tools/blob/e3825986359ecd75d82aa88ff2015d36e234e55d/conversion/nifti1/mnc2nii.c#L617) converts from MINC transforms to the [NIfTI sform](https://brainder.org/2012/09/23/the-nifti-file-format/).
 
 ## Links
 
